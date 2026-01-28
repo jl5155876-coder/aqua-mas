@@ -1,0 +1,40 @@
+{
+  "name": "Aqua+ Fundadores Pro ERP",
+  "short_name": "Aqua+ Pro",
+  "description": "Sistema ERP integral para plantas purificadoras de agua con control de producción y logística.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f0f9ff",
+  "theme_color": "#0284c7",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3105/3105807.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3105/3105807.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "categories": ["business", "productivity", "utilities"],
+  "screenshots": [
+    {
+      "src": "https://images.unsplash.com/photo-1541452586676-e91054329245?auto=format&fit=crop&w=500&q=80",
+      "sizes": "500x800",
+      "type": "image/jpg",
+      "form_factor": "narrow"
+    }
+  ],
+  "permissions": [
+    "camera",
+    "microphone",
+    "geolocation",
+    "notifications",
+    "unlimitedStorage",
+    "clipboard-read",
+    "clipboard-write"
+  ]
+}
