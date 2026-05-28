@@ -5,10 +5,27 @@ import { GoogleGenAI, Type } from "@google/genai";
  * Helper para obtener la instancia de AI de forma segura.
  * Se instancia en cada llamada para asegurar que capture la API_KEY inyectada.
  */
-const getAI = () => new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+const getAI = () => {
+  const geminiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.API_KEY;
+  const key = geminiKey || apiKey;
+  
+  if (!key) {
+    console.error("CRITICAL: Gemini API Key not found. Please check your environment variables (GEMINI_API_KEY or API_KEY).");
+  } else {
+    console.log("Gemini API Key found and initialized.");
+  }
+  return new GoogleGenAI({ apiKey: key || '' });
+};
 
 export async function processVoiceCommand(command: string) {
   try {
+    const key = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!key) {
+      console.error("Gemini API Key missing for processVoiceCommand");
+      return { action: 'ERROR', summary: 'Error de configuración: API Key de Gemini no encontrada.' };
+    }
+    console.log("Processing voice command with Gemini...");
     const ai = getAI();
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
@@ -41,13 +58,19 @@ export async function processVoiceCommand(command: string) {
 
 export async function optimizeRoute(orders: any[]) {
   try {
+    const key = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!key) {
+      console.error("Gemini API Key missing for optimizeRoute");
+      return { orderedIds: orders.map(o => o.id), explanation: "Error de configuración: API Key no encontrada." };
+    }
+    console.log(`Optimizing ${orders.length} orders via Gemini...`);
     const ai = getAI();
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Optimiza esta lista de pedidos basándote en la eficiencia logística. 
-      Pedidos: ${JSON.stringify(orders)}`,
+      contents: `Optimiza esta lista de pedidos basándote en la eficiencia logística y proximidad de direcciones. 
+      Pedidos (incluyen dirección del cliente): ${JSON.stringify(orders)}`,
       config: {
-        systemInstruction: "Eres un despachador experto. Reordena los pedidos para minimizar el tiempo de viaje. Devuelve un JSON con el campo 'orderedIds' que sea un arreglo de los IDs en el orden óptimo.",
+        systemInstruction: "Eres un despachador experto en logística urbana. Reordena los pedidos para minimizar el tiempo de viaje basándote en las direcciones proporcionadas. Si no hay direcciones claras, usa la lógica de prioridad. Devuelve un JSON con el campo 'orderedIds' que sea un arreglo de los IDs en el orden óptimo.",
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -72,6 +95,10 @@ export async function optimizeRoute(orders: any[]) {
 
 export async function getBusinessInsights(salesData: any[]) {
   try {
+    const key = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!key) {
+      return "Error de configuración: API Key no encontrada.";
+    }
     const ai = getAI();
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',

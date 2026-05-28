@@ -1,0 +1,125 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    // Collection: products
+    // Fields: id, name, price, stock, category, lastUpdated
+    //
+    // Collection: customers
+    // Fields: id, name, alias, phone, address, balance, lastUpdated
+    //
+    // Collection: sales
+    // Fields: id, timestamp, customerId, total, paidAmount, deviceId
+    //
+    // Collection: config
+    // Document: global (ticketConfig, productionConfig, emptyJugsStock)
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/employees/$(request.auth.uid)).data.roles.hasAny(['Administrador']) ||
+          (request.auth.token.email == "jl5155876@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidString(field, min, max) {
+      return request.resource.data[field] is string && 
+             request.resource.data[field].size() >= min && 
+             request.resource.data[field].size() <= max;
+    }
+
+    function isValidNumber(field, min) {
+      return request.resource.data[field] is number && request.resource.data[field] >= min;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    // Products: Read by all auth users, write by admins
+    match /products/{productId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Customers: Read/Write by all auth users (repartidores need to update balances)
+    match /customers/{customerId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Sales: Read by all auth users, create by all auth users, delete by admins
+    match /sales/{saleId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin();
+    }
+
+    // Orders: Read/Write by all auth users
+    match /orders/{orderId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Employees: Read by all auth users, write by admins
+    match /employees/{employeeId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Vehicles: Read/Write by all auth users
+    match /vehicles/{vehicleId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Quality: Read/Write by all auth users
+    match /quality/{recordId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Tasks: Read/Write by all auth users
+    match /tasks/{taskId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Attendance: Read/Write by all auth users
+    match /attendance/{attendanceId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Saved Reports: Read by all auth users, write by admins
+    match /saved_reports/{reportId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Messages: Read/Write by all auth users
+    match /messages/{messageId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Notifications: Read/Write by all auth users
+    match /notifications/{notificationId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Config: Read by all auth users, write by admins
+    match /config/{configId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    
+    // Default deny
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}

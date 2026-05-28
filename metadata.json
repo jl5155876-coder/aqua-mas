@@ -3,7 +3,6 @@
   "description": "Enterprise Resource Planning for water purification plants with POS, logistics, quality control, and AI-driven voice commands for Aqua+ Fundadores.",
   "requestFramePermissions": [
     "camera",
-    "microphone",
     "geolocation",
     "clipboard-read"
   ]

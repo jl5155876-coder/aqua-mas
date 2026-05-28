@@ -23,3 +23,20 @@ declare module 'jsqr' {
 
   export default jsQR;
 }
+
+// Support for experimental Barcode Detector API
+declare class BarcodeDetector {
+  constructor(options?: { formats: string[] });
+  static getSupportedFormats(): Promise<string[]>;
+  detect(image: ImageBitmapSource): Promise<Array<{ 
+    rawValue: string; 
+    format: string;
+    boundingBox: DOMRectReadOnly;
+    cornerPoints: { x: number; y: number }[];
+  }>>;
+}
+
+declare module 'leaflet' {
+  const L: any;
+  export = L;
+}

@@ -1,0 +1,220 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Producto",
+      "description": "Productos, accesorios e insumos de la planta",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "stock": { "type": "number" },
+        "category": { "type": "string", "enum": ["Agua", "Accesorios", "Insumos"] },
+        "lastUpdated": { "type": "number" },
+        "satCode": { "type": "string" },
+        "unitCode": { "type": "string" }
+      },
+      "required": ["id", "name", "price", "stock", "category"]
+    },
+    "Customer": {
+      "title": "Cliente",
+      "description": "Clientes de la planta y rutas",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "alias": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "balance": { "type": "number" },
+        "specialPrice": { "type": "number" },
+        "garrafonType": { "type": "string" },
+        "jugsOnLoan": { "type": "number" },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "lastUpdated": { "type": "number" }
+      },
+      "required": ["id", "name", "alias"]
+    },
+    "Sale": {
+      "title": "Venta",
+      "description": "Registro de transacciones de venta",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "customerId": { "type": "string" },
+        "customerAlias": { "type": "string" },
+        "total": { "type": "number" },
+        "paidAmount": { "type": "number" },
+        "change": { "type": "number" },
+        "emptyGarrafonsReturned": { "type": "number" },
+        "deviceId": { "type": "string" },
+        "status": { "type": "string" },
+        "previousBalance": { "type": "number" },
+        "newBalance": { "type": "number" }
+      },
+      "required": ["id", "timestamp", "customerId", "total"]
+    },
+    "Order": {
+      "title": "Pedido",
+      "description": "Pedidos pendientes de entrega",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "status": { "type": "string", "enum": ["pendiente", "asignado", "entregado", "cancelado"] },
+        "priority": { "type": "number" },
+        "total": { "type": "number" },
+        "customerId": { "type": "string" },
+        "customerAlias": { "type": "string" },
+        "vehicleId": { "type": "string" },
+        "lastUpdated": { "type": "number" }
+      },
+      "required": ["id", "timestamp", "status", "customerId"]
+    },
+    "Employee": {
+      "title": "Empleado",
+      "description": "Personal de la planta y repartidores",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "pin": { "type": "string" },
+        "role": { "type": "string" },
+        "lastUpdated": { "type": "number" }
+      },
+      "required": ["id", "name", "pin"]
+    },
+    "Vehicle": {
+      "title": "Vehículo",
+      "description": "Unidades de reparto e inventario móvil",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "plate": { "type": "string" },
+        "description": { "type": "string" },
+        "loadCapacity": { "type": "number" },
+        "currentLoad": { "type": "number" },
+        "emptyJugs": { "type": "number" },
+        "lastUpdated": { "type": "number" },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" }
+      },
+      "required": ["id", "plate"]
+    },
+    "QualityRecord": {
+      "title": "Registro de Calidad",
+      "description": "Bitácora de parámetros fisicoquímicos",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "employeeId": { "type": "string" },
+        "type": { "type": "string", "enum": ["Cruda", "Producto"] },
+        "ph": { "type": "number" },
+        "cloro": { "type": "number" },
+        "tds": { "type": "number" },
+        "dureza": { "type": "number" }
+      },
+      "required": ["id", "timestamp", "type"]
+    },
+    "AppConfig": {
+      "title": "Configuración",
+      "description": "Configuración global de la aplicación",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "ticketConfig": { "type": "object" },
+        "productionConfig": { "type": "object" },
+        "emptyJugsStock": { "type": "number" },
+        "lastUpdated": { "type": "number" }
+      }
+    },
+    "Task": {
+      "title": "Tarea",
+      "description": "Tareas asignadas a empleados",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "status": { "type": "string", "enum": ["pendiente", "completada"] },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "date": { "type": "string" },
+        "employeeId": { "type": "string" }
+      },
+      "required": ["id", "timestamp", "status", "title", "employeeId"]
+    },
+    "Attendance": {
+      "title": "Asistencia",
+      "description": "Registro de asistencia de empleados",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "employeeId": { "type": "string" },
+        "status": { "type": "string", "enum": ["presente", "retardo", "falta"] },
+        "date": { "type": "string" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "employeeId", "status", "date", "timestamp"]
+    },
+    "SavedReport": {
+      "title": "Reporte Guardado",
+      "description": "Reportes de ventas guardados",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "rangeType": { "type": "string", "enum": ["day", "week", "month"] },
+        "dateLabel": { "type": "string" },
+        "totalGross": { "type": "number" }
+      },
+      "required": ["id", "timestamp", "rangeType", "totalGross"]
+    },
+    "Message": {
+      "title": "Mensaje",
+      "description": "Mensajería interna entre empleados",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string" },
+        "senderId": { "type": "string" },
+        "receiverId": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "read": { "type": "boolean" }
+      },
+      "required": ["id", "text", "senderId", "receiverId", "timestamp"]
+    },
+    "Notification": {
+      "title": "Notificación",
+      "description": "Notificaciones del sistema",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "read": { "type": "boolean" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["info", "warning", "urgent", "alarm"] }
+      },
+      "required": ["id", "timestamp", "title", "message", "type"]
+    }
+  },
+  "firestore": {
+    "/products/{productId}": { "schema": "Product", "description": "Catálogo de productos" },
+    "/customers/{customerId}": { "schema": "Customer", "description": "Directorio de clientes" },
+    "/sales/{saleId}": { "schema": "Sale", "description": "Historial de ventas" },
+    "/orders/{orderId}": { "schema": "Order", "description": "Gestión de pedidos" },
+    "/employees/{employeeId}": { "schema": "Employee", "description": "Personal y accesos" },
+    "/vehicles/{vehicleId}": { "schema": "Vehicle", "description": "Flotilla y rutas" },
+    "/quality/{recordId}": { "schema": "QualityRecord", "description": "Control de calidad" },
+    "/tasks/{taskId}": { "schema": "Task", "description": "Tareas de empleados" },
+    "/attendance/{attendanceId}": { "schema": "Attendance", "description": "Control de asistencia" },
+    "/saved_reports/{reportId}": { "schema": "SavedReport", "description": "Reportes históricos" },
+    "/messages/{messageId}": { "schema": "Message", "description": "Chat interno" },
+    "/notifications/{notificationId}": { "schema": "Notification", "description": "Avisos del sistema" },
+    "/config/global": { "schema": "AppConfig", "description": "Configuración compartida" }
+  }
+}

@@ -5,8 +5,8 @@ import jsQR from 'jsqr';
 
 interface ScannerModuleProps {
   onBack: () => void;
-  onScanSuccess?: (data: string, type: 'TICKET' | 'SYNC') => void;
-  mode?: 'TICKET' | 'P2P';
+  onScanSuccess?: (data: string, type: 'TICKET' | 'SYNC' | 'PRODUCT') => void;
+  mode?: 'TICKET' | 'P2P' | 'UNIVERSAL';
 }
 
 export const ScannerModule: React.FC<ScannerModuleProps> = ({ onBack, onScanSuccess, mode = 'TICKET' }) => {
@@ -15,28 +15,87 @@ export const ScannerModule: React.FC<ScannerModuleProps> = ({ onBack, onScanSucc
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [debugInfo, setDebugInfo] = useState<string>('');
   
+  // Hardware controls
+  const [hasFlash, setHasFlash] = useState(false);
+  const [isFlashOn, setIsFlashOn] = useState(false);
+  const [cameraFacing, setCameraFacing] = useState<'environment' | 'user'>('environment');
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const overlayRef = useRef<HTMLCanvasElement>(null); // For drawing bounding boxes
   const animationRef = useRef<number>(0);
   const streamRef = useRef<MediaStream | null>(null);
+  const trackRef = useRef<MediaStreamTrack | null>(null);
 
-  // Limpieza agresiva de streams previos
+  // Native Barcode Detector (Experimental Chrome/Android)
+  const detectorRef = useRef<any>(null);
+
+  useEffect(() => {
+    // Initialize Native Detector if available
+    if ('BarcodeDetector' in window) {
+      try {
+        detectorRef.current = new (window as any).BarcodeDetector({
+          formats: ['qr_code', 'ean_13', 'code_128', 'upc_a']
+        });
+      } catch (e) {
+        console.warn("BarcodeDetector supported but failed to init:", e);
+      }
+    }
+  }, []);
+
+  const playBeep = () => {
+    try {
+      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContext) return;
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(1200, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.1);
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.15);
+    } catch(e) {}
+  };
+
   const cleanupMedia = () => {
+    if (animationRef.current) cancelAnimationFrame(animationRef.current);
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => {
         track.stop();
-        track.enabled = false;
+        track.enabled = false; 
       });
       streamRef.current = null;
     }
     if (videoRef.current) {
       videoRef.current.srcObject = null;
-      videoRef.current.load();
     }
-    if (animationRef.current) cancelAnimationFrame(animationRef.current);
   };
 
-  // Iniciar Cámara
+  const toggleFlash = async () => {
+    if (trackRef.current && hasFlash) {
+      try {
+        await trackRef.current.applyConstraints({
+          advanced: [{ torch: !isFlashOn }] as any
+        });
+        setIsFlashOn(!isFlashOn);
+      } catch (e) {
+        console.error("Flash toggle failed", e);
+      }
+    }
+  };
+
+  const switchCamera = () => {
+    setCameraFacing(prev => prev === 'environment' ? 'user' : 'environment');
+    setScanning(false);
+    setTimeout(() => setScanning(true), 100);
+  };
+
+  // Start Camera Logic
   useEffect(() => {
     if (!scanning) {
       cleanupMedia();
@@ -47,124 +106,95 @@ export const ScannerModule: React.FC<ScannerModuleProps> = ({ onBack, onScanSucc
       cleanupMedia();
       setCameraError(null);
       setDebugInfo('Iniciando cámara...');
+      setHasFlash(false);
 
       try {
-        // Verificar soporte
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-          throw new Error("API de cámara no soportada en este dispositivo.");
+          throw new Error("API de cámara no soportada.");
         }
 
-        // Estrategia 1: Buscar ID de cámara trasera explícitamente (Más robusto en Android)
-        let backCameraId = null;
-        try {
-          const devices = await navigator.mediaDevices.enumerateDevices();
-          const videoDevices = devices.filter(d => d.kind === 'videoinput');
-          const backDevice = videoDevices.find(d => 
-            d.label.toLowerCase().includes('back') || 
-            d.label.toLowerCase().includes('trasera') || 
-            d.label.toLowerCase().includes('environment')
-          );
-          if (backDevice) backCameraId = backDevice.deviceId;
-          // Si solo hay una cámara, usarla
-          if (!backCameraId && videoDevices.length === 1) backCameraId = videoDevices[0].deviceId;
-        } catch (e) {
-          console.warn("Error enumerando dispositivos:", e);
-        }
-
-        const tryStream = async (constraints: MediaStreamConstraints) => {
-          try {
-            return await navigator.mediaDevices.getUserMedia(constraints);
-          } catch (err: any) {
-            console.warn(`Intento fallido: ${JSON.stringify(constraints)}`, err);
-            return null;
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: cameraFacing,
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
           }
-        };
-
-        let stream: MediaStream | null = null;
-
-        // Intento 1: ID Específico (si se encontró)
-        if (backCameraId) {
-          stream = await tryStream({ 
-            video: { 
-              deviceId: { exact: backCameraId },
-              width: { ideal: 1280 },
-              height: { ideal: 720 }
-            } 
-          });
-        }
-
-        // Intento 2: Facing Mode Environment (Estándar Web)
-        if (!stream) {
-          stream = await tryStream({ 
-            video: { facingMode: "environment", width: { ideal: 640 } } 
-          });
-        }
-
-        // Intento 3: Cualquier video (Fallback extremo)
-        if (!stream) {
-          stream = await tryStream({ video: true });
-        }
+        });
 
         if (stream) {
           streamRef.current = stream;
+          const track = stream.getVideoTracks()[0];
+          trackRef.current = track;
+
+          // Check for Flash capabilities
+          const capabilities = track.getCapabilities ? track.getCapabilities() : {};
+          if ((capabilities as any).torch) {
+            setHasFlash(true);
+          }
+
           if (videoRef.current) {
             videoRef.current.srcObject = stream;
             videoRef.current.setAttribute("playsinline", "true");
-            
-            // Promesa de play segura
-            const playPromise = videoRef.current.play();
-            if (playPromise !== undefined) {
-              playPromise.catch(error => {
-                console.error("Error al reproducir video:", error);
-                setCameraError("generic");
-                setDebugInfo(`Play error: ${error.message}`);
-              });
-            }
-            
+            await videoRef.current.play();
             requestAnimationFrame(tick);
             setDebugInfo('');
           }
-        } else {
-          throw new Error("No se pudo obtener ningún stream de video.");
         }
-
       } catch (err: any) {
-        console.error("Camera Fatal Error:", err);
-        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-          setCameraError("permiso");
-        } else if (err.name === 'NotFoundError') {
-          setCameraError("no_device");
-        } else if (err.name === 'NotReadableError') {
-          setCameraError("generic");
-          setDebugInfo("Hardware ocupado. Reinicia la app.");
-        } else {
-          setCameraError("generic");
-          setDebugInfo(`${err.name}: ${err.message}`);
-        }
+        console.error("Camera Error:", err);
+        if (err.name === 'NotAllowedError') setCameraError("permiso");
+        else if (err.name === 'NotFoundError') setCameraError("no_device");
+        else setCameraError("generic");
       }
     };
 
-    // Pequeño delay para asegurar que el DOM esté listo y streams anteriores cerrados
-    const timer = setTimeout(startCamera, 500);
-    return () => {
-      clearTimeout(timer);
-      cleanupMedia();
-    };
-  }, [scanning]);
+    startCamera();
+    return () => cleanupMedia();
+  }, [scanning, cameraFacing]);
 
-  const tick = () => {
-    if (!videoRef.current || !canvasRef.current || !scanning) return;
+  // Main Loop
+  const tick = async () => {
+    if (!videoRef.current || !canvasRef.current || !overlayRef.current || !scanning) return;
 
     if (videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) {
       const video = videoRef.current;
       const canvas = canvasRef.current;
-      const ctx = canvas.getContext('2d');
+      const overlay = overlayRef.current;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      const overlayCtx = overlay.getContext('2d');
 
-      if (ctx) {
-        canvas.height = video.videoHeight;
+      if (ctx && overlayCtx) {
+        // Sync dimensions
         canvas.width = video.videoWidth;
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        canvas.height = video.videoHeight;
+        overlay.width = video.videoWidth;
+        overlay.height = video.videoHeight;
 
+        // Clear overlay
+        overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+
+        // --- STRATEGY 1: NATIVE BARCODE DETECTOR (FAST) ---
+        if (detectorRef.current) {
+          try {
+            const barcodes = await detectorRef.current.detect(video);
+            if (barcodes.length > 0) {
+              const code = barcodes[0];
+              
+              // Draw Bounding Box
+              if (code.cornerPoints) {
+                drawBoundingBox(overlayCtx, code.cornerPoints);
+              }
+
+              handleScan(code.rawValue);
+              return; // Stop processing this frame
+            }
+          } catch (e) {
+            // Native failed, fallback to jsQR
+          }
+        }
+
+        // --- STRATEGY 2: JSQR FALLBACK (QR ONLY) ---
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         try {
           const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
           const code = jsQR(imageData.data, imageData.width, imageData.height, {
@@ -172,15 +202,35 @@ export const ScannerModule: React.FC<ScannerModuleProps> = ({ onBack, onScanSucc
           });
 
           if (code && code.data) {
+            // Draw Bounding Box
+            drawBoundingBox(overlayCtx, [
+              code.location.topLeftCorner,
+              code.location.topRightCorner,
+              code.location.bottomRightCorner,
+              code.location.bottomLeftCorner
+            ]);
+            
             handleScan(code.data);
-            return; 
+            return;
           }
         } catch (e) {
-          // Ignorar errores de decodificación frame a frame
+          // Ignore
         }
       }
     }
     animationRef.current = requestAnimationFrame(tick);
+  };
+
+  const drawBoundingBox = (ctx: CanvasRenderingContext2D, points: any[]) => {
+    ctx.beginPath();
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "#34d399"; // emerald-400
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      ctx.lineTo(points[i].x, points[i].y);
+    }
+    ctx.closePath();
+    ctx.stroke();
   };
 
   const decryptData = (encrypted: string) => {
@@ -194,51 +244,72 @@ export const ScannerModule: React.FC<ScannerModuleProps> = ({ onBack, onScanSucc
       if (mode === 'P2P' && (encrypted.length > 5 || encrypted.startsWith('AQUA-'))) {
          return { type: 'SYNC', data: encrypted };
       }
-      return null;
+      return { type: 'PRODUCT', data: encrypted };
     }
   };
 
-  const handleScan = (code: string) => {
+  const handleScan = (codeRaw: string) => {
     if (!scanning) return;
     
+    playBeep();
     if (navigator.vibrate) navigator.vibrate(200);
 
-    if (mode === 'P2P') {
-      cleanupMedia();
-      if (onScanSuccess) onScanSuccess(code, 'SYNC');
-      return;
+    const processed = decryptData(codeRaw);
+
+    // MODE FILTERING
+    if (mode === 'P2P' && processed?.type !== 'SYNC') {
+        // Ignore non-sync codes in P2P mode to avoid confusion
+        return;
     }
 
-    const decoded = decryptData(code);
-    if (decoded?.type === 'TICKET') {
-      cleanupMedia();
-      if (onScanSuccess && mode === 'TICKET') {
-        onScanSuccess(code, 'TICKET');
-      } else {
-        setResult(decoded.data);
-        setScanning(false);
-      }
+    if (processed?.type === 'TICKET') {
+        if (mode === 'TICKET' || mode === 'UNIVERSAL') {
+            cleanupMedia();
+            if (onScanSuccess) onScanSuccess(codeRaw, 'TICKET');
+            else { setResult(processed.data); setScanning(false); }
+        }
+    } else if (processed?.type === 'SYNC') {
+        if (mode === 'P2P' || mode === 'UNIVERSAL') {
+            cleanupMedia();
+            if (onScanSuccess) onScanSuccess(codeRaw, 'SYNC');
+        }
+    } else {
+        // Assume Product / Generic
+        cleanupMedia();
+        if (onScanSuccess) onScanSuccess(codeRaw, 'PRODUCT');
+        else {
+            setResult({ id: 'Código de Barras', total: codeRaw });
+            setScanning(false);
+        }
     }
-  };
-
-  const handleManualEntry = (code: string) => {
-    handleScan(code);
   };
 
   return (
-    <div className={`h-full flex flex-col animate-fadeIn overflow-hidden ${mode === 'P2P' ? 'bg-slate-800' : 'bg-sky-900'}`}>
-      <div className="px-6 pt-8 pb-4 flex items-center gap-4 relative z-20">
-        <button onClick={onBack} className="w-12 h-12 bg-white/10 text-white rounded-2xl flex items-center justify-center active:scale-90 transition-transform">
-          <i className="fas fa-arrow-left"></i>
-        </button>
-        <h2 className="text-2xl font-black tracking-tight text-white">
-          {mode === 'P2P' ? 'Conectar' : 'Validar Ticket'}
-        </h2>
+    <div className={`h-full flex flex-col animate-fadeIn overflow-hidden bg-slate-900`}>
+      <div className="px-6 pt-8 pb-4 flex items-center justify-between relative z-20">
+        <div className="flex items-center gap-4">
+            <button onClick={onBack} className="w-12 h-12 bg-white/10 text-white rounded-2xl flex items-center justify-center active:scale-90 transition-transform">
+            <i className="fas fa-arrow-left"></i>
+            </button>
+            <h2 className="text-2xl font-black tracking-tight text-white">
+            {mode === 'P2P' ? 'Conectar' : mode === 'TICKET' ? 'Validar Ticket' : 'Escáner Universal'}
+            </h2>
+        </div>
+        <div className="flex gap-3">
+            {hasFlash && (
+                <button onClick={toggleFlash} className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all ${isFlashOn ? 'bg-amber-400 text-white shadow-lg shadow-amber-400/50' : 'bg-white/10 text-white'}`}>
+                    <i className="fas fa-bolt"></i>
+                </button>
+            )}
+            <button onClick={switchCamera} className="w-12 h-12 bg-white/10 text-white rounded-2xl flex items-center justify-center active:scale-90 transition-transform">
+                <i className="fas fa-rotate"></i>
+            </button>
+        </div>
       </div>
 
       <div className="flex-1 flex flex-col items-center justify-center px-6 relative">
         {scanning ? (
-          <div className="w-full h-full flex flex-col items-center justify-center">
+          <div className="w-full h-full flex flex-col items-center justify-center relative rounded-[2.5rem] overflow-hidden bg-black shadow-2xl border border-white/10 my-4">
             
             {cameraError ? (
                <div className="bg-white p-8 rounded-[2rem] max-w-sm text-center shadow-2xl animate-fadeIn z-30">
@@ -262,34 +333,27 @@ export const ScannerModule: React.FC<ScannerModuleProps> = ({ onBack, onScanSucc
                   <button onClick={() => { setCameraError(null); setScanning(true); window.location.reload(); }} className="w-full bg-sky-600 text-white py-4 rounded-xl font-black uppercase text-xs shadow-lg">Reiniciar App</button>
                </div>
             ) : (
-               <div className="relative w-full max-w-sm aspect-square rounded-[3rem] overflow-hidden border-4 border-white/20 shadow-2xl bg-black">
-                  <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover" muted playsInline></video>
+               <>
+                  <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover opacity-90" muted playsInline></video>
                   <canvas ref={canvasRef} className="hidden"></canvas>
+                  <canvas ref={overlayRef} className="absolute inset-0 w-full h-full pointer-events-none z-10"></canvas>
                   
-                  {/* Overlay UI */}
-                  <div className="absolute inset-0 border-[30px] border-black/50 z-10 pointer-events-none"></div>
-                  <div className={`absolute top-0 left-0 right-0 h-1 shadow-[0_0_20px_rgba(255,255,255,1)] animate-scanner z-20 ${mode === 'P2P' ? 'bg-emerald-500' : 'bg-sky-400'}`}></div>
-                  
-                  <div className="absolute bottom-6 left-0 right-0 text-center z-20">
-                     <p className="text-white/80 text-xs font-bold uppercase tracking-widest bg-black/40 inline-block px-4 py-1 rounded-full backdrop-blur-md">
-                        {mode === 'P2P' ? 'Buscando QR Maestro...' : 'Buscando Ticket...'}
-                     </p>
+                  {/* Visual Guide Overlay */}
+                  <div className="absolute inset-0 z-20 pointer-events-none flex flex-col items-center justify-center">
+                      <div className="relative w-64 h-64 border-2 border-white/30 rounded-3xl">
+                          <div className="absolute top-0 left-0 w-10 h-10 border-t-4 border-l-4 border-emerald-400 rounded-tl-2xl"></div>
+                          <div className="absolute top-0 right-0 w-10 h-10 border-t-4 border-r-4 border-emerald-400 rounded-tr-2xl"></div>
+                          <div className="absolute bottom-0 left-0 w-10 h-10 border-b-4 border-l-4 border-emerald-400 rounded-bl-2xl"></div>
+                          <div className="absolute bottom-0 right-0 w-10 h-10 border-b-4 border-r-4 border-emerald-400 rounded-br-2xl"></div>
+                          
+                          {/* Scan line */}
+                          <div className="absolute top-1/2 left-4 right-4 h-0.5 bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.8)] animate-pulse"></div>
+                      </div>
+                      <p className="mt-8 text-white/80 font-bold uppercase text-xs tracking-widest bg-black/40 px-4 py-2 rounded-full backdrop-blur-md">
+                        Apunte al código
+                      </p>
                   </div>
-                  
-                  {/* Debug info on screen transparently */}
-                  {debugInfo && <div className="absolute top-2 left-2 text-[8px] text-white/50 font-mono z-30">{debugInfo}</div>}
-               </div>
-            )}
-            
-            {!cameraError && (
-              <div className="w-full max-w-sm mt-8">
-                <input 
-                  type="text" 
-                  placeholder="Código Manual..." 
-                  className="w-full border border-white/20 bg-white/10 text-white rounded-2xl p-5 text-sm outline-none focus:ring-2 ring-white/30 transition-all placeholder-white/40 font-bold text-center"
-                  onKeyDown={e => e.key === 'Enter' && handleManualEntry(e.currentTarget.value)}
-                />
-              </div>
+               </>
             )}
           </div>
         ) : (
@@ -298,38 +362,41 @@ export const ScannerModule: React.FC<ScannerModuleProps> = ({ onBack, onScanSucc
               <div className="w-20 h-20 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mb-6">
                 <i className="fas fa-check-circle text-4xl"></i>
               </div>
-              <h3 className="text-2xl font-black text-sky-900 mb-2">Código Detectado</h3>
+              <h3 className="text-2xl font-black text-sky-900 mb-2">¡Detectado!</h3>
               <div className="w-full bg-sky-50 rounded-3xl p-6 mb-8 space-y-4">
-                <div className="flex justify-between">
-                  <span className="text-[10px] font-black text-sky-400 uppercase">ID</span>
-                  <span className="text-xs font-black text-sky-900">{result?.id || 'N/A'}</span>
+                <div className="flex justify-between items-center border-b border-sky-100 pb-3">
+                  <span className="text-[10px] font-black text-sky-400 uppercase">Referencia</span>
+                  <span className="text-xs font-black text-sky-900 truncate max-w-[150px]">{result?.id || 'N/A'}</span>
                 </div>
                 {result?.total && (
-                  <div className="flex justify-between border-t border-sky-100 pt-3">
-                    <span className="text-[10px] font-black text-sky-400 uppercase">Monto</span>
-                    <span className="text-xl font-black text-sky-900">${result.total}</span>
+                  <div className="flex justify-between">
+                    <span className="text-[10px] font-black text-sky-400 uppercase">Valor</span>
+                    <span className="text-xl font-black text-sky-900">{typeof result.total === 'number' ? `$${result.total}` : result.total}</span>
                   </div>
                 )}
               </div>
               <button 
                 onClick={() => { setResult(null); setScanning(true); }} 
-                className="w-full bg-sky-600 text-white py-5 rounded-[2rem] font-black uppercase text-xs tracking-widest shadow-xl shadow-sky-100"
+                className="w-full bg-sky-600 text-white py-5 rounded-[2rem] font-black uppercase text-xs tracking-widest shadow-xl shadow-sky-100 active:scale-95 transition-all"
               >
                 Escanear Otro
               </button>
             </div>
           </RoundedCard>
         )}
+        
+        {!cameraError && scanning && (
+            <button 
+                onClick={() => {
+                    const code = prompt("Ingresa el código manualmente:");
+                    if(code) handleScan(code);
+                }}
+                className="absolute bottom-12 text-white/50 font-bold text-xs uppercase underline z-30"
+            >
+                Entrada Manual
+            </button>
+        )}
       </div>
-
-      <style>{`
-        @keyframes scanner {
-          0% { transform: translateY(30px); opacity: 0; }
-          50% { opacity: 1; }
-          100% { transform: translateY(280px); opacity: 0; }
-        }
-        .animate-scanner { animation: scanner 2s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
-      `}</style>
     </div>
   );
 };
